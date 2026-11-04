@@ -60,6 +60,7 @@ The catalog refreshes when pi refreshes model catalogs (startup, opening the mod
 - Audio, video and PDF inputs are not exposed to pi; only text and image are.
 - Provider ids share pi's provider namespace: do not point another live-model package (for example `pi-live-models`) at `magpie`, or its cached catalog competes with this one.
 - A `providers.magpie` entry in `models.json` is ignored; configure this extension through `magpie.json`.
+- Session-affinity headers are sent only under pi; omp does not emit them, so magpie's Usage session attribution is pi-only.
 
 ## Development
 

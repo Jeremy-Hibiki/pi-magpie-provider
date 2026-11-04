@@ -12,11 +12,11 @@ type PiChatModelConfig = Extract<NonNullable<ProviderConfig["models"]>[number], 
  * Model config across both runtimes: pi reads `thinkingLevelMap`, omp (oh-my-pi) reads `thinking`.
  */
 type ChatModelConfig = PiChatModelConfig & {
-  thinking?: { mode: string; efforts: string[]; effortMap?: Record<string, string> };
+  thinking?: { mode: string; efforts: string[] };
 };
 
 /** Provider registration across both runtimes: pi calls `refreshModels`, omp calls `fetchDynamicModels`. */
-type ProviderRegistration = ProviderConfig & {
+export type ProviderRegistration = ProviderConfig & {
   fetchDynamicModels?: (apiKey: string | undefined) => Promise<ChatModelConfig[]>;
 };
 
@@ -95,7 +95,7 @@ export function toModelConfig(model: GatewayModel, root: string): ChatModelConfi
     contextWindow: model.context_window ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: model.max_output_tokens ?? DEFAULT_MAX_TOKENS,
     // Magpie logs a turn's session from these headers.
-    compat: { sendSessionAffinityHeaders: true },
+    compat: { sendSessionAffinityHeaders: true }, // pi only; omp ignores this flag
   };
   if (efforts.length > 0) {
     const levels: NonNullable<ChatModelConfig["thinkingLevelMap"]> = {};
@@ -109,14 +109,17 @@ export function toModelConfig(model: GatewayModel, root: string): ChatModelConfi
     if (efforts.includes("none")) levels.off = "none";
     else if (api !== "anthropic-messages") levels.off = null;
     config.thinkingLevelMap = levels;
-    // omp has no thinkingLevelMap; advertise the efforts directly.
-    config.thinking = {
-      mode: "effort",
-      efforts: efforts.filter(
-        (effort) => effort !== "none" && PI_LEVELS.includes(effort as (typeof PI_LEVELS)[number]),
-      ),
-      ...(efforts.includes("none") ? { effortMap: { off: "none" } } : {}),
-    };
+    // omp has no thinkingLevelMap; advertise the efforts directly. Anthropic needs the
+    // budget-effort mode: plain "effort" pins a fixed 1024-token budget and drops effort.
+    const ompEfforts = efforts.filter(
+      (effort) => effort !== "none" && PI_LEVELS.includes(effort as (typeof PI_LEVELS)[number]),
+    );
+    if (ompEfforts.length > 0) {
+      config.thinking = {
+        mode: api === "anthropic-messages" ? "anthropic-budget-effort" : "effort",
+        efforts: ompEfforts,
+      };
+    }
   }
   return config;
 }
@@ -159,6 +162,8 @@ export default async function (pi: ExtensionAPI) {
   const config = readConfig();
   const root = gatewayRoot(config.baseUrl ?? LOCAL_URL);
   const apiKey = config.apiKey ?? LOCAL_KEY;
+  const fetchModels = (key: string, signal?: AbortSignal) =>
+    fetchCatalog(root, key, signal).then((ms) => ms.map((m) => toModelConfig(m, root)));
 
   // pi 1.x ignores fetchDynamicModels; omp has no refreshModels and would otherwise see zero models.
   const registration: ProviderRegistration = {
@@ -167,27 +172,25 @@ export default async function (pi: ExtensionAPI) {
     api: "openai-completions",
     apiKey,
 
-    // oxlint-disable-next-line typescript/unbound-method -- publish is always provided by pi
+    // oxlint-disable-next-line typescript/unbound-method -- publish is destructured from context
     refreshModels: async ({ signal, credential, stored, allowNetwork, publish }) => {
       const cached = stored?.models.filter((model) => model.provider === PROVIDER_NAME) ?? [];
 
-      // 离线模式：使用持久化缓存
+      // Offline mode: use the persisted cache
       if (!allowNetwork) {
         return cached;
       }
 
       try {
         const key = credential?.type === "api_key" && credential.key ? credential.key : apiKey;
-        const models = (await fetchCatalog(root, key, signal)).map((model) =>
-          toModelConfig(model, root),
-        );
+        const models = await fetchModels(key, signal);
 
-        // 保存供后续启动使用的模型目录
-        await publish!({
+        // Persist the catalog for later launches
+        await publish({
           persist: {
             models: models.map((model) => ({
               ...model,
-              provider: "magpie",
+              provider: PROVIDER_NAME,
               api: model.api ?? "openai-completions",
               baseUrl: model.baseUrl ?? `${root}/v1`,
             })),
@@ -199,12 +202,12 @@ export default async function (pi: ExtensionAPI) {
       } catch (error) {
         console.error("[magpie] model refresh failed:", error);
 
-        // 手动取消时不掩盖取消信号
+        // Do not mask a manual abort
         if (signal.aborted) {
           throw error;
         }
 
-        // 请求失败，保留上次成功发现的模型
+        // On failure keep the last successfully discovered models
         if (cached.length > 0) {
           return cached;
         }
@@ -215,10 +218,7 @@ export default async function (pi: ExtensionAPI) {
 
     // omp (oh-my-pi) fetches live catalogs through this hook and caches them itself
     // (SQLite, 24h TTL, keyed by provider name).
-    fetchDynamicModels: async (key: string | undefined) => {
-      const models = await fetchCatalog(root, key ?? apiKey);
-      return models.map((model) => toModelConfig(model, root));
-    },
+    fetchDynamicModels: (key: string | undefined) => fetchModels(key ?? apiKey),
   };
 
   pi.registerProvider(PROVIDER_NAME, registration);

@@ -1,18 +1,19 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { expect, test, vi } from "vite-plus/test";
-import magpieProvider, { gatewayRoot, readConfig, toModelConfig } from "../src/index.ts";
+import magpieProvider, {
+  gatewayRoot,
+  type ProviderRegistration,
+  readConfig,
+  toModelConfig,
+} from "../src/index.ts";
 
-type RegisteredProvider = ProviderConfig & {
-  fetchDynamicModels?: (apiKey: string | undefined) => Promise<unknown[]>;
-};
-
-function register(config?: unknown): RegisteredProvider {
-  let registered: RegisteredProvider | undefined;
+function register(config?: unknown): ProviderRegistration {
+  let registered: ProviderRegistration | undefined;
   const pi = {
-    registerProvider: (_id: string, provider: ProviderConfig) => {
+    registerProvider: (_id: string, provider: ProviderRegistration) => {
       registered = provider;
     },
   } as unknown as ExtensionAPI;
@@ -103,12 +104,11 @@ test("maps catalog features onto a pi model", () => {
   });
   expect(translated.thinkingLevelMap).toBeUndefined();
   // omp reads `thinking` instead of thinkingLevelMap.
-  expect(claude.thinking).toMatchObject({ mode: "effort", efforts: ["low", "medium", "high"] });
-  expect(gpt.thinking).toMatchObject({
-    mode: "effort",
-    efforts: ["low", "high"],
-    effortMap: { off: "none" },
+  expect(claude.thinking).toMatchObject({
+    mode: "anthropic-budget-effort",
+    efforts: ["low", "medium", "high"],
   });
+  expect(gpt.thinking).toMatchObject({ mode: "effort", efforts: ["low", "high"] });
   expect(translated.thinking).toBeUndefined();
 });
 
