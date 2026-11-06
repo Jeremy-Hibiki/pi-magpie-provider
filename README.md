@@ -48,8 +48,8 @@ Every `GET /v1/models` refresh maps each entry onto a pi model:
 
 - `context_window` → `contextWindow`, `max_output_tokens` → `maxTokens`.
 - `modalities.input` → text or text+image.
-- `supported_reasoning_levels` → `reasoning` plus a `thinkingLevelMap` that hides levels the model does not have, maps `off` to `none` where offered, and leaves pi's `off` available on Anthropic Messages (thinking disabled).
-- `native_endpoints` → the model is asked on its native API (`/v1/responses` → `openai-responses`, `/v1/messages` → `anthropic-messages`) so magpie relays the request instead of translating it; everything else goes over `openai-completions`.
+- `supported_reasoning_levels` → `reasoning` plus a `thinkingLevelMap` that hides levels the model does not have and maps `off` to `none` where offered.
+- `native_endpoints` → a model that speaks `/v1/responses` is asked directly (`openai-responses`) so magpie relays instead of translating; everything else goes over `openai-completions`.
 - Unknown metadata falls back to a 128K window and a 16K output limit.
 
 The catalog refreshes when pi refreshes model catalogs (startup, opening the model picker) and is not persisted: a gateway that is down shows no models until the next successful refresh.

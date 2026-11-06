@@ -72,21 +72,16 @@ export function gatewayRoot(url: string): string {
   return url.replace(/\/+$/, "").replace(/\/v1$/, "");
 }
 
-/** One catalog entry as a pi model, on the API the model speaks natively when magpie relays it. */
-export function toModelConfig(model: GatewayModel, root: string): ChatModelConfig {
+/** One catalog entry as a pi model: `/v1/responses` natively, everything else via completions translation. */
+export function toModelConfig(model: GatewayModel): ChatModelConfig {
   const efforts = (model.supported_reasoning_levels ?? []).map((level) => level.effort);
-  const native = model.native_endpoints ?? [];
-  const api = native.includes("/v1/responses")
+  const api = (model.native_endpoints ?? []).includes("/v1/responses")
     ? "openai-responses"
-    : native.includes("/v1/messages")
-      ? "anthropic-messages"
-      : undefined;
+    : undefined;
   const config: ChatModelConfig = {
     id: model.id,
     name: model.display_name ?? model.id,
     api,
-    // Anthropic clients add the /v1 themselves.
-    baseUrl: api === "anthropic-messages" ? root : undefined,
     reasoning: model.reasoning ?? efforts.length > 0,
     input: model.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
     // shortcut: /v1/models carries no price, so pi reports every call as free; read magpie's
@@ -104,21 +99,16 @@ export function toModelConfig(model: GatewayModel, root: string): ChatModelConfi
         levels[level] = efforts.includes(level) ? level : null;
       }
     }
-    // Pi's off sends thinking disabled, which Anthropic Messages accepts; elsewhere hide it
-    // unless the model has a none effort.
+    // Hide off unless the model offers a none effort.
     if (efforts.includes("none")) levels.off = "none";
-    else if (api !== "anthropic-messages") levels.off = null;
+    else levels.off = null;
     config.thinkingLevelMap = levels;
-    // omp has no thinkingLevelMap; advertise the efforts directly. Anthropic needs the
-    // budget-effort mode: plain "effort" pins a fixed 1024-token budget and drops effort.
+    // omp has no thinkingLevelMap; advertise the efforts directly.
     const ompEfforts = efforts.filter(
       (effort) => effort !== "none" && PI_LEVELS.includes(effort as (typeof PI_LEVELS)[number]),
     );
     if (ompEfforts.length > 0) {
-      config.thinking = {
-        mode: api === "anthropic-messages" ? "anthropic-budget-effort" : "effort",
-        efforts: ompEfforts,
-      };
+      config.thinking = { mode: "effort", efforts: ompEfforts };
     }
   }
   return config;
@@ -163,7 +153,7 @@ export default async function (pi: ExtensionAPI) {
   const root = gatewayRoot(config.baseUrl ?? LOCAL_URL);
   const apiKey = config.apiKey ?? LOCAL_KEY;
   const fetchModels = (key: string, signal?: AbortSignal) =>
-    fetchCatalog(root, key, signal).then((ms) => ms.map((m) => toModelConfig(m, root)));
+    fetchCatalog(root, key, signal).then((ms) => ms.map(toModelConfig));
 
   // pi 1.x ignores fetchDynamicModels; omp has no refreshModels and would otherwise see zero models.
   const registration: ProviderRegistration = {

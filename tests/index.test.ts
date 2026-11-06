@@ -51,22 +51,19 @@ test("uses baseUrl and apiKey from magpie.json", () => {
 });
 
 test("maps catalog features onto a pi model", () => {
-  const claude = toModelConfig(
-    {
-      id: "anthropic/claude-sonnet-4-6",
-      display_name: "Claude Sonnet 4.6",
-      reasoning: true,
-      supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "high" }],
-      context_window: 200_000,
-      max_output_tokens: 64_000,
-      modalities: { input: ["text", "image"] },
-      native_endpoints: ["/v1/messages"],
-    },
-    "http://192.168.1.20:3425",
-  );
+  // /v1/messages-only models translate through the completions endpoint.
+  const claude = toModelConfig({
+    id: "anthropic/claude-sonnet-4-6",
+    display_name: "Claude Sonnet 4.6",
+    reasoning: true,
+    supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "high" }],
+    context_window: 200_000,
+    max_output_tokens: 64_000,
+    modalities: { input: ["text", "image"] },
+    native_endpoints: ["/v1/messages"],
+  });
   expect(claude).toMatchObject({
-    api: "anthropic-messages",
-    baseUrl: "http://192.168.1.20:3425",
+    api: undefined,
     contextWindow: 200_000,
     maxTokens: 64_000,
     input: ["text", "image"],
@@ -79,22 +76,19 @@ test("maps catalog features onto a pi model", () => {
     minimal: null,
     xhigh: null,
   });
-  // Anthropic takes thinking disabled for pi's off.
-  expect(claude.thinkingLevelMap?.off).toBeUndefined();
+  // No none effort, so off is hidden.
+  expect(claude.thinkingLevelMap?.off).toBeNull();
 
-  const gpt = toModelConfig(
-    {
-      id: "openai/gpt-5",
-      supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }, { effort: "none" }],
-      native_endpoints: ["/v1/chat/completions", "/v1/responses"],
-    },
-    "http://127.0.0.1:3425",
-  );
-  expect(gpt).toMatchObject({ api: "openai-responses", baseUrl: undefined });
+  const gpt = toModelConfig({
+    id: "openai/gpt-5",
+    supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }, { effort: "none" }],
+    native_endpoints: ["/v1/chat/completions", "/v1/responses"],
+  });
+  expect(gpt.api).toBe("openai-responses");
   expect(gpt.thinkingLevelMap?.off).toBe("none");
   expect(gpt.thinkingLevelMap?.minimal).toBeNull();
 
-  const translated = toModelConfig({ id: "zai/glm-5" }, "http://127.0.0.1:3425");
+  const translated = toModelConfig({ id: "zai/glm-5" });
   expect(translated).toMatchObject({
     api: undefined,
     reasoning: false,
@@ -104,10 +98,7 @@ test("maps catalog features onto a pi model", () => {
   });
   expect(translated.thinkingLevelMap).toBeUndefined();
   // omp reads `thinking` instead of thinkingLevelMap.
-  expect(claude.thinking).toMatchObject({
-    mode: "anthropic-budget-effort",
-    efforts: ["low", "medium", "high"],
-  });
+  expect(claude.thinking).toMatchObject({ mode: "effort", efforts: ["low", "medium", "high"] });
   expect(gpt.thinking).toMatchObject({ mode: "effort", efforts: ["low", "high"] });
   expect(translated.thinking).toBeUndefined();
 });
