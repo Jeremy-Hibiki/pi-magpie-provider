@@ -5,12 +5,14 @@
 ## Install
 
 ```bash
-pi install npm:pi-magpie-provider
-# or load a local checkout
-pi -e ./pi-magpie-provider
+# npm
+pi install npm:@jeremy-hibiki/pi-magpie-provider
+
+# or straight from GitHub
+pi install git:github.com/Jeremy-Hibiki/pi-magpie-provider
 ```
 
-Requires a running magpie (`magpie serve`, or the desktop app).
+Requires a running magpie gateway (`magpie serve`, or the desktop app).
 
 ### omp (oh-my-pi)
 
@@ -19,11 +21,31 @@ omp is a fork of pi with its own config and plugin dirs, and its provider API di
 instead (omp caches the catalog itself, SQLite with a 24h TTL).
 
 ```bash
-omp plugin install ./pi-magpie-provider
+omp plugin install npm:@jeremy-hibiki/pi-magpie-provider
 ```
 
 omp reads `magpie.json` from `~/.omp/agent/magpie.json` (pi reads `~/.pi/agent/magpie.json`), so
 copy the file when both runtimes share one gateway.
+
+## Use the models
+
+On load the extension registers the provider `magpie`; every entry in the gateway's
+`GET /v1/models` becomes a selectable model named `magpie/<id>` — for example
+`magpie/zhipu/glm-5.3`.
+
+- Pick it in the `/model` selector, or run `pi --model magpie/<id> …` / `omp --model magpie/<id> …`.
+- pi refreshes the catalog on TUI startup and every time the model selector opens; successful
+  refreshes are persisted, so `--print` and `--offline` runs still see the last known catalog.
+- omp refreshes on demand and caches for 24h; run `omp models refresh` to force a refetch.
+
+Typical setups:
+
+- **One gateway for every agent** — point pi, omp, and other apps at the same magpie so Usage
+  attribution, model inventory, and keys live in one place.
+- **Shared LAN/Tailscale gateway** — a workstation or NAS runs `magpie serve`; laptops use the
+  same catalog without holding the upstream provider keys locally.
+- **Local zero-config** — the desktop magpie app on `127.0.0.1:3425` works with no `magpie.json`
+  at all.
 
 ## Configure
 
@@ -51,8 +73,6 @@ Every `GET /v1/models` refresh maps each entry onto a pi model:
 - `supported_reasoning_levels` → `reasoning` plus a `thinkingLevelMap` that hides levels the model does not have and maps `off` to `none` where offered.
 - `native_endpoints` → a model that speaks `/v1/responses` is asked directly (`openai-responses`) so magpie relays instead of translating; everything else goes over `openai-completions`.
 - Unknown metadata falls back to a 128K window and a 16K output limit.
-
-The catalog refreshes when pi refreshes model catalogs (startup, opening the model picker) and is not persisted: a gateway that is down shows no models until the next successful refresh.
 
 ## Limits
 
